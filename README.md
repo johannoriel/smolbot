@@ -1,6 +1,20 @@
 # smolbot
 
-Bot Telegram minimal : répond avec l'heure (fuseau `Europe/Paris` par défaut).
+Bot Telegram personnel : LLM gratuit (FreeLLMAPI) + recherche web (Tavily) + images (Flux) + Notion, avec mémoire de conversation.
+
+## Commandes
+- `/heure` : l'heure exacte
+- `/image <description>` : générer une image
+- `/new` : nouvelle conversation (efface l'historique, réactive la mémoire)
+- `/test` : mode sans historique (ne retient rien jusqu'au prochain `/new`)
+
+## Structure
+- `bot.py` : orchestrateur (commandes, historique par chat, boucle tool-calling)
+- `search_tools.py` : `web_search`, `web_read` (Tavily)
+- `image_tools.py` : `generate_image` (FreeLLMAPI `/v1/images/generations`)
+- `notion_tools.py` : `notion_list`, `notion_search`, `notion_read`, `notion_append`, `notion_replace`, `notion_create` (scope restreint aux racines)
+
+L'historique est en mémoire (30 derniers messages par chat) : perdu au redémarrage.
 
 ## Variables d'environnement
 - `TELEGRAM_BOT_TOKEN` (obligatoire) : token donné par @BotFather
