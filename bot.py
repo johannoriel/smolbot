@@ -39,7 +39,9 @@ async def message_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             max_tokens=512,
         )
         answer = response.choices[0].message.content or "Je n'ai pas de réponse."
-        log.info("LLM response routed via %s", response.headers.get("x-routed-via", "unknown"))
+        log.info("LLM response received: model=%s finish_reason=%s",
+                 response.model,
+                 response.choices[0].finish_reason)
         await update.message.reply_text(answer)
     except Exception:
         log.exception("LLM request failed")
