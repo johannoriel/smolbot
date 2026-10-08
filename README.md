@@ -19,6 +19,9 @@ Via FreeLLMAPI `/v1/images/generations` (ex. worker Cloudflare Flux). Le LLM app
 - `IMAGE_MODEL` (défaut `@cf/black-forest-labs/flux-2-klein-4b`)
 - `IMAGE_SIZE` (optionnel, ex. `1024x1024` ; vide = défaut du provider)
 
+## Notion (lecture + écriture, scope restreint)
+Intégration interne Notion (token `ntn_...` partagé sur la page racine). 4 outils : `notion_search`, `notion_read` (page + sous-blocs jusqu'à 3 niveaux), `notion_append` (ajoute du texte en fin de page), `notion_create` (crée une sous-page). L'écriture n'a lieu que sur demande explicite. Le code refuse toute page hors des racines (`NOTION_ROOT_IDS` ou `NOTION_ROOTS_IDS`, IDs séparés par virgules/espaces, tirets optionnels). Pas de RAG vectoriel : lecture live à chaque question.
+
 ## Lancer en local
 ```
 pip install -r requirements.txt
