@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -21,6 +22,10 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 TAVILY_MAX_RESULTS = int(os.environ.get("TAVILY_MAX_RESULTS", "5"))
 TAVILY_TIMEOUT_S = float(os.environ.get("TAVILY_TIMEOUT_S", "20"))
 
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-4b")
+IMAGE_SIZE = os.environ.get("IMAGE_SIZE", "")  # ex. "1024x1024", vide = défaut du provider
+IMAGE_TIMEOUT_S = float(os.environ.get("IMAGE_TIMEOUT_S", "120"))
+
 SYSTEM_PROMPT = """Tu es smolbot, un assistant Telegram personnel.
 Réponds en français sauf si l'utilisateur écrit dans une autre langue.
 Sois utile, direct et concis.
@@ -28,7 +33,10 @@ Tu as accès à la recherche web : utilise web_search quand la question porte
 sur des faits récents, l'actualité, ou des infos que tu ne connais pas.
 Utilise web_read pour lire le contenu d'une page issue de la recherche
 quand tu as besoin de citer ou résumer précisément.
-Cite les sources (titre + URL) quand tu utilises le web."""
+Cite les sources (titre + URL) quand tu utilises le web.
+Tu peux générer des images : utilise generate_image quand l'utilisateur
+demande explicitement une image, un dessin, une illustration ou une photo.
+Ne génère une image que sur demande explicite, pas pour illustrer tes réponses."""
 
 TOOLS = [
     {
@@ -79,6 +87,27 @@ TOOLS = [
                     },
                 },
                 "required": ["urls"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": (
+                "Genere une image a partir d'une description et l'envoie a "
+                "l'utilisateur. A utiliser UNIQUEMENT quand l'utilisateur demande "
+                "explicitement une image, un dessin, une illustration ou une photo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Description detaillee de l'image a generer (en anglais de preference)",
+                    },
+                },
+                "required": ["prompt"],
             },
         },
     },
@@ -161,17 +190,71 @@ async def run_tool(name: str, args: dict) -> str:
     return f"Outil inconnu: {name}"
 
 
+async def generate_image_bytes(prompt: str) -> tuple[str, bytes | str]:
+    """Génère une image via FreeLLMAPI. Retourne ("bytes", data) ou ("error", msg)."""
+    kwargs: dict = {"model": IMAGE_MODEL, "prompt": prompt}
+    if IMAGE_SIZE:
+        kwargs["size"] = IMAGE_SIZE
+    resp = await llm.images.generate(**kwargs)
+    item = resp.data[0]
+    b64 = getattr(item, "b64_json", None)
+    if b64:
+        return ("bytes", base64.b64decode(b64))
+    url = getattr(item, "url", None)
+    if url:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return ("bytes", r.content)
+    revised = getattr(item, "revised_prompt", "")
+    return ("error", f"réponse image vide (revised_prompt={revised!r})")
+
+
+async def handle_image_tool(update: Update, prompt: str) -> str:
+    """Génère l'image et l'envoie directement. Retourne le résumé pour le LLM."""
+    if not prompt.strip():
+        return "Echec: prompt vide, demande une description à l'utilisateur."
+    try:
+        log.info("generate_image: %s", prompt[:150])
+        kind, payload = await generate_image_bytes(prompt)
+        if kind == "error":
+            return f"Echec génération image: {payload}"
+        await update.message.reply_photo(photo=payload, caption=prompt[:900])
+        return f"Image générée et envoyée à l'utilisateur (prompt: {prompt[:200]}). Confirme brièvement."
+    except Exception as e:
+        log.warning("Image generation failed: %s", e)
+        return f"Echec génération image: {e}"
+
+
 def now_text():
     now = datetime.now(TZ)
     return f"Il est {now:%H:%M:%S} ({now:%d/%m/%Y}, {TZ.key})"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Salut ! Je suis smolbot. Envoie-moi un message et je te réponds avec le LLM. La commande /heure donne l'heure exacte.")
+    await update.message.reply_text("Salut ! Je suis smolbot. Envoie-moi un message et je te réponds avec le LLM. Commandes : /heure (l'heure), /image <description> (générer une image).")
 
 
 async def heure(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(now_text())
+
+
+async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prompt = " ".join(context.args) if context.args else ""
+    if not prompt.strip():
+        await update.message.reply_text("Usage : /image <description de l'image>")
+        return
+    await update.message.reply_text("🎨 Génération en cours…")
+    try:
+        kind, payload = await generate_image_bytes(prompt)
+    except Exception as e:
+        log.warning("Image generation failed: %s", e)
+        await update.message.reply_text(f"Désolé, la génération d'image a échoué : {e}")
+        return
+    if kind == "error":
+        await update.message.reply_text(f"Désolé, la génération d'image a échoué : {payload}")
+        return
+    await update.message.reply_photo(photo=payload, caption=prompt[:900])
 
 
 async def message_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -214,7 +297,10 @@ async def message_llm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = await run_tool(tc.function.name, args)
+                if tc.function.name == "generate_image":
+                    result = await handle_image_tool(update, args.get("prompt", ""))
+                else:
+                    result = await run_tool(tc.function.name, args)
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
         else:
             response = await llm.chat.completions.create(
@@ -232,9 +318,10 @@ def main():
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler(["heure", "time"], heure))
+    app.add_handler(CommandHandler("image", image_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_llm))
-    log.info("smolbot démarré (long polling), LLM=%s tavily=%s",
-             LLM_BASE_URL, "on" if TAVILY_API_KEY else "off")
+    log.info("smolbot démarré (long polling), LLM=%s tavily=%s image=%s",
+             LLM_BASE_URL, "on" if TAVILY_API_KEY else "off", IMAGE_MODEL)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

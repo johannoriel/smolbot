@@ -14,6 +14,11 @@ Bot Telegram minimal : répond avec l'heure (fuseau `Europe/Paris` par défaut).
 ## Recherche web
 Le bot expose 2 outils au LLM via tool-calling OpenAI : `web_search` (recherche Tavily + réponse générée + extraits) et `web_read` (lecture du contenu complet de 1-3 pages pour résumer/citer). Pas de RAG vectoriel : c'est un RAG simple en mémoire (retrieve puis generate), suffisant pour un usage perso.
 
+## Génération d'images
+Via FreeLLMAPI `/v1/images/generations` (ex. worker Cloudflare Flux). Le LLM appelle l'outil `generate_image` sur demande explicite, ou commande directe `/image <description>`. Variables :
+- `IMAGE_MODEL` (défaut `@cf/black-forest-labs/flux-2-klein-4b`)
+- `IMAGE_SIZE` (optionnel, ex. `1024x1024` ; vide = défaut du provider)
+
 ## Lancer en local
 ```
 pip install -r requirements.txt
