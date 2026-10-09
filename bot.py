@@ -15,6 +15,7 @@ import notion_tools
 import search_tools
 
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # les logs INFO de httpx contiennent le token Telegram dans l'URL
 log = logging.getLogger("smolbot")
 TZ = ZoneInfo(os.environ.get("BOT_TIMEZONE", "Europe/Paris"))
 LLM_BASE_URL = os.environ.get("FREELLMAPI_BASE_URL", "http://freellmapi.railway.internal:3001/v1")
