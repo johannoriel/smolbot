@@ -2,3 +2,4 @@ python-telegram-bot==21.6
 tzdata
 openai>=1.40,<2
 httpx>=0.27
+asyncpg>=0.30
